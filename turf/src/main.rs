@@ -2,8 +2,18 @@ use std::io;
 use std::mem;
 use winapi::shared::minwindef::{DWORD, FALSE};
 
-fn main(){
-    dbg!(enum_proc().unwrap().len());
+mod process;
+use process::Process;
+
+fn main() {
+    let mut success = 0;
+    let mut failed = 0;
+    enum_proc().unwrap().into_iter().for_each(|pid| match Process::open(pid) {
+        Ok(_) => success += 1,
+        Err(_) => failed += 1,
+    });
+
+    eprintln!("Successfully opened {}/{} processes", success, success + failed);
 }
 
 pub fn enum_proc() -> io::Result<Vec<u32>> {
