@@ -6,14 +6,16 @@ mod process;
 use process::Process;
 
 fn main() {
-    let mut success = 0;
-    let mut failed = 0;
-    enum_proc().unwrap().into_iter().for_each(|pid| match Process::open(pid) {
-        Ok(_) => success += 1,
-        Err(_) => failed += 1,
-    });
-
-    eprintln!("Successfully opened {}/{} processes", success, success + failed);
+    enum_proc()
+        .unwrap()
+        .into_iter()
+        .for_each(|pid| match Process::open(pid) {
+            Ok(proc) => match proc.name() {
+                Ok(name) => println!("{}: {}", pid, name),
+                Err(e) => println!("{}: (failed to get name: {})", pid, e),
+            },
+            Err(e) => eprintln!("failed to open {}: {}", pid, e),
+        });
 }
 
 pub fn enum_proc() -> io::Result<Vec<u32>> {
