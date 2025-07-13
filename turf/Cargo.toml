@@ -6,4 +6,4 @@ edition = "2024"
 [dependencies]
 eframe = "0.31.1"
 pnet = "0.35.0"
-winapi = { version = "0.3.9", features = ["psapi", "processthreadsapi", "handleapi", "winnt"] }
+winapi = { version = "0.3.9", features = ["psapi", "processthreadsapi", "handleapi", "winnt", "memoryapi", "minwindef", "ntdef"] }
