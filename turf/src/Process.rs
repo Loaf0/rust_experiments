@@ -32,6 +32,29 @@ impl Process {
         .ok_or_else(io::Error::last_os_error)
     }
 
+    pub fn read_memory(&self, addr: usize, n: usize) -> io::Result<Vec<u8>> {
+        let mut buffer = Vec::<u8>::with_capacity(n);
+        let mut read = 0;
+
+        // SAFETY: the buffer points to valid memory, and the buffer size is correctly set.
+        if unsafe {
+            winapi::um::memoryapi::ReadProcessMemory(
+                self.handle.as_ptr(),
+                addr as *const _,
+                buffer.as_mut_ptr().cast(),
+                buffer.capacity(),
+                &mut read,
+            )
+        } == FALSE
+        {
+            Err(io::Error::last_os_error())
+        } else {
+            // SAFETY: the call succeeded and `read` contains the amount of bytes written.
+            unsafe {buffer.set_len(read as usize)};
+            Ok(buffer)    
+        }
+    }
+
     pub fn name(&self) -> io::Result<String> {
         let mut module = MaybeUninit::<HMODULE>::uninit();
         let mut size = 0;
@@ -79,7 +102,7 @@ impl Process {
         eprintln!("Process handle: {:?}", self.handle);
 
         while address < isize::MAX as usize {
-            eprintln!("Querying address: 0x{:X}", address);
+            // eprintln!("Querying address: 0x{:X}", address);
 
             let written = unsafe {
                 winapi::um::memoryapi::VirtualQueryEx(
@@ -92,33 +115,33 @@ impl Process {
 
             if written == 0 {
                 let err = io::Error::last_os_error();
-                eprintln!("VirtualQueryEx failed at 0x{:X}: {}", address, err);
+                // eprintln!("VirtualQueryEx failed at 0x{:X}: {}", address, err);
                 break;
             }
 
             let region = unsafe { info.assume_init() };
 
-            eprintln!(
-                "Found region: Base=0x{:X}, Size={}, State=0x{:X}, Protect=0x{:X}, Type=0x{:X}",
-                region.BaseAddress as usize,
-                region.RegionSize,
-                region.State,
-                region.Protect,
-                region.Type,
-            );
+            // eprintln!(
+            //     "Found region: Base=0x{:X}, Size={}, State=0x{:X}, Protect=0x{:X}, Type=0x{:X}",
+            //     region.BaseAddress as usize,
+            //     region.RegionSize,
+            //     region.State,
+            //     region.Protect,
+            //     region.Type,
+            // );
 
             if region.State == MEM_COMMIT &&
                 (region.Protect & PAGE_GUARD == 0) &&
                 (region.Protect & PAGE_NOACCESS == 0) {
-                eprintln!("-> Region accepted and added.");
+                // eprintln!("-> Region accepted and added.");
                 regions.push(region);
             } else {
-                eprintln!("-> Region skipped due to protection or state.");
+                // eprintln!("-> Region skipped due to protection or state.");
             }
 
             // Prevent infinite loops on bad memory region reporting
             if region.RegionSize == 0 {
-                eprintln!("-> Region size is 0; breaking to avoid infinite loop.");
+                // eprintln!("-> Region size is 0; breaking to avoid infinite loop.");
                 break;
             }
 
@@ -139,5 +162,4 @@ impl Drop for Process {
         unsafe { CloseHandle(self.handle.as_ptr()); }
     }
 }
-
 

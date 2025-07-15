@@ -1,6 +1,7 @@
 use std::io;
 use std::mem;
 use winapi::shared::minwindef::DWORD;
+use winapi::um::winnt;
 mod process;
 use crate::process::Process;
 
@@ -13,33 +14,38 @@ fn main() {
     let pid: u32 = input.trim().parse().expect("Please enter a valid number");
 
     let process = Process::open(pid).expect("Failed to open process");
+    
+    // filter memory regions based on permissions
+    let mask = winnt::PAGE_EXECUTE_READWRITE | winnt::PAGE_EXECUTE_WRITECOPY | winnt::PAGE_READWRITE | winnt::PAGE_WRITECOPY;
 
-    let regions = process.memory_regions().expect("Failed to get memory regions");
-    eprintln!("Memory regions found : {}", regions.len());
-    if regions.is_empty() {
-        eprintln!("No memory regions found.");
-    } else {
-        for region in &regions {
-            eprintln!(
-                "Region:
-                BaseAddress: {:?}
-                AllocationBase: {:?}
-                AllocationProtect: {:?}
-                RegionSize: {:?}
-                State: {:?}
-                Protect: {:?}
-                Type: {:?}",
-                region.BaseAddress,
-                region.AllocationBase,
-                region.AllocationProtect,
-                region.RegionSize,
-                region.State,
-                region.Protect,
-                region.Type,
-            );
+    let regions = match process.memory_regions() {
+        Ok(regions) => regions,
+        Err(e) => {
+            eprintln!("Failed to get memory regions: {}", e);
+            return;
         }
-        eprint!("Memory regions: {:?}", regions.len());
-    }
+    };
+
+    let regions: Vec<_> = regions
+        .into_iter()
+        .filter(|p| (p.Protect & mask) != 0)
+        .collect();
+
+    eprintln!("Memory regions found : {}", regions.len());
+
+    let target: i32 = 295;
+    let target_bytes: [u8; 4] = target.to_ne_bytes();
+    // list of eligable addresses
+    let mut locations = Vec::with_capacity(regions.len());
+
+    initial_scan(&process, &regions, &target_bytes, &mut locations);
+
+    // this to adjust scans between calls or run until only one value remains
+    // rescan the target to verify the target value stayed consistent
+    let target: i32 = 295;
+    let target_bytes: [u8; 4] = target.to_ne_bytes();
+    rescan_locations(&process, &mut locations, &target_bytes);
+
 }
 
 pub fn enum_proc() -> io::Result<Vec<u32>> {
@@ -78,3 +84,74 @@ pub fn print_processes() {
             _ => {}
         });
 }
+
+fn rescan_locations(process: &Process, locations: &mut Vec<usize>, target_bytes: &[u8]) {
+    locations.retain(|addr| match process.read_memory(*addr, target_bytes.len()) {
+        Ok(memory) => {
+            if memory == target_bytes {
+                true
+            } else {
+                println!("Value at address {:x} changed during rescan.", addr);
+                false
+            }
+        }
+        Err(_) => {
+            println!("Failed to read address {:x} during rescan.", addr);
+            false
+        }
+    });
+}
+
+fn initial_scan(
+    process: &Process,
+    regions: &[winapi::um::winnt::MEMORY_BASIC_INFORMATION],
+    target_bytes: &[u8],
+    locations: &mut Vec<usize>,
+) {
+    for region in regions {
+        match process.read_memory(region.BaseAddress as _, region.RegionSize) {
+            Ok(memory) => {
+                memory
+                    .windows(target_bytes.len())
+                    .enumerate()
+                    .for_each(|(offset, window)| {
+                        if window == target_bytes {
+                            locations.push(region.BaseAddress as usize + offset);
+                            println!(
+                                "Found exact value at [{:?}+{:x}]",
+                                region.BaseAddress, offset
+                            );
+                        }
+                    });
+            }
+            Err(err) => eprintln!(
+                "Failed to read {} bytes at {:?}: {}",
+                region.RegionSize, region.BaseAddress, err,
+            ),
+        }
+    }
+}
+
+//     if regions.is_empty() {
+//         eprintln!("No memory regions found.");
+//     } else {
+//         for region in &regions {
+//             eprintln!(
+//                 "Region:
+//                 BaseAddress: {:?}
+//                 AllocationBase: {:?}
+//                 AllocationProtect: {:?}
+//                 RegionSize: {:?}
+//                 State: {:?}
+//                 Protect: {:?}
+//                 Type: {:?}",
+//                 region.BaseAddress,
+//                 region.AllocationBase,
+//                 region.AllocationProtect,
+//                 region.RegionSize,
+//                 region.State,
+//                 region.Protect,
+//                 region.Type,
+//             );
+//         }
+//     }
